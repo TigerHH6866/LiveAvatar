@@ -21,6 +21,7 @@ assets/<形象>/   loop.mp4、faces/*.webp、meta.json
 pip install -r requirements.txt
 python server/app.py            
 访问：http://127.0.0.1:7861/
+
 ```
 
 当前后端接入了coze agent，百炼asr(qwenqwen-audio-3.1-asr-flash)，百炼tts(qwen-audio-3.1-tts-flash)，需要自行开通key。您也可以自行二次开发接入其他agent和语音模型
@@ -29,6 +30,7 @@ python server/app.py
 demo：https://three.daihuajun.cn/webgpu
 
 调试后端：`?ep=webgpu` 强制 WebGPU、`?ep=wasm` 强制 wasm。
+
 
 ## 关键设计
 
@@ -41,12 +43,14 @@ demo：https://three.daihuajun.cn/webgpu
 - **降级**：WebGPU 会话创建失败时自动重建 worker 走 wasm（44 ms/帧，帧率不足 25 fps 但可用）。
 - 模型是 fp32 ONNX（33.7 MB），首次加载偏重，后续靠浏览器 HTTP 缓存。
 
-## 实测（RTX 2060 SUPER + Chrome）
+
+## 实测（i5-12490）
 
 | 后端 | 每帧耗时 | 25 fps |
 | --- | --- | --- |
 | WebGPU | 17.5 ms（首帧 126 ms 用于编译管线，已用预热规避） | 有余量 |
 | wasm（SIMD，4 线程） | 43 ms | 略超预算，会掉帧 |
+
 
 ## 数字形象模型限制
 
