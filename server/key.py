@@ -6,10 +6,10 @@
 ###############################################################################
 
 # ---------------- Coze ----------------
-COZE_TOKEN = "pat_1kKSq7RFVQQCJFQh1Ni0tigyOwzXcac9mwT5nSHQodW4v3IDYAkLDWVWn2tYHt05"
-COZE_BOT_ID = "7401082582928588841"
+COZE_TOKEN = ""
+COZE_BOT_ID = ""
 
 # ---------------- 阿里云百炼实时 TTS（Qwen-Audio-TTS/CosyVoice） ----------------
-ALIYUN_TTS_API_KEY = "sk-ws-H.PHDYMHM.XIJD.MEUCIDaflWGdzKTO8cD0Xx5QsUMottyOcDz1RCpiCfFzI3mJAiEA1tb8QB1kBZRIDEdwin0aiAzBx4WPPQoBC-KfcQUjYeI"
+ALIYUN_TTS_API_KEY = ""
 # 音色（customer_taiyi 复刻音色对应的真实 voice_id）
-ALIYUN_TTS_VOICE = "qwen-audio-3.1-tts-flash-bailian-7f1354a1e1d94b3983b429dcd298af2b"
+ALIYUN_TTS_VOICE = ""

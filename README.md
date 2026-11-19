@@ -19,11 +19,11 @@ assets/<形象>/   loop.mp4、faces/*.webp、meta.json
 
 ```
 pip install -r requirements.txt
-python server/app.py            # 
-打开：http://127.0.0.1:7861/
+python server/app.py            
+访问：http://127.0.0.1:7861/
 ```
 
-当前后端接入了coze agent，百炼asr，百炼tts，需要自行开通key。您也可以自行二次开发接入其他agent和语音模型
+当前后端接入了coze agent，百炼asr(qwenqwen-audio-3.1-asr-flash)，百炼tts(qwen-audio-3.1-tts-flash)，需要自行开通key。您也可以自行二次开发接入其他agent和语音模型
 凭据在 `server/key.py` 或环境变量读（`COZE_TOKEN`、`COZE_BOT_ID`、`ALIYUN_TTS_API_KEY`、`ALIYUN_TTS_VOICE`）。
 
 demo：https://three.daihuajun.cn/webgpu
