@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>LiveAvatar Web</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="stage-wrap">
+      <canvas id="stage"></canvas>
+      <video id="source" class="hidden" playsinline muted preload="auto"></video>
+      <div id="subtitle" class="subtitle"></div>
+    </main>
+
+    <footer class="bar">
+      <div id="status" class="status">加载中…</div>
+      <div class="controls">
+        <button id="mic" class="icon" title="点一下开始说话，说完再点一下">🎤</button>
+        <input id="text" type="text" placeholder="输入消息，或点麦克风说话" autocomplete="off" />
+        <button id="send">发送</button>
+        <button id="file" class="ghost" title="选一个本地音频文件驱动，只做推理，不走对话">音频文件</button>
+        <button id="stop" class="ghost">打断</button>
+      </div>
+      <input id="audiofile" type="file" accept="audio/*" hidden />
+    </footer>
+
+    <div id="loading" class="loading">
+      <div class="loading-card">
+        <div class="spinner"></div>
+        <div id="loading-text">正在加载…</div>
+        <div class="loading-track"><div id="loading-fill" class="loading-fill"></div></div>
+        <div class="loading-tip">首次加载模型包，请稍后</div>
+      </div>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,6 @@
+flask>=3.0
+requests>=2.31
+aiohttp>=3.9
+
+# 仅导出 ONNX 时需要（浏览器端不需要）：
+# torch, onnx, numpy, pillow
