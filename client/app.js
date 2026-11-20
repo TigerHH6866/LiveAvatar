@@ -5,6 +5,8 @@
  *   - 画面 = 循环素材视频 + 模型出的 152x152 脸部画面（贴回 bbox）
  */
 
+import { SileroVAD, VADStateMachine, loadVadOrt } from './vad.js';
+
 const FPS = 25;
 const SAMPLE_RATE = 16000;
 const SAMPLES_PER_FRAME = SAMPLE_RATE / FPS;   // 640
@@ -40,7 +42,8 @@ const state = {
   speaking: false,
   local: null,        // { seconds }：本地音频播放中（不走对话）
   sessionId: (crypto.randomUUID && crypto.randomUUID()) || String(Date.now()),
-  subtitle: '',
+  chatAbort: null,    // 当前对话流的 AbortController，抢占时中止
+  chatBubble: null,   // 当前正在流式追加的数字人气泡
 };
 
 // ---------------------------------------------------------------- 视频与画布
@@ -425,8 +428,6 @@ async function playLocalAudio(file) {
   }
 
   resetPlayback();
-  setSubtitle('');
-  state.subtitle = '';
   el('send').disabled = true;
 
   ensurePcmCapacity(pcm.length);
@@ -533,9 +534,13 @@ function startWorker(prefer, models) {
 
 async function speak(text) {
   if (!text.trim()) return;
+  // 抢占：中止上一轮还在流的对话，避免两路音频叠在一起。
+  if (state.chatAbort) state.chatAbort.abort();
+  const controller = new AbortController();
+  state.chatAbort = controller;
+
   resetPlayback();
-  setSubtitle('');
-  state.subtitle = '';
+  state.chatBubble = null;
   el('send').disabled = true;
   setStatus('思考中…');
   try {
@@ -543,6 +548,7 @@ async function speak(text) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, sessionid: state.sessionId }),
+      signal: controller.signal,
     });
     if (!response.ok || !response.body) throw new Error('对话请求失败');
     const reader = response.body.getReader();
@@ -574,9 +580,13 @@ async function speak(text) {
       }
     }
   } catch (error) {
+    if (error.name === 'AbortError') return;
     setStatus(String(error), 'error');
   } finally {
-    el('send').disabled = false;
+    if (state.chatAbort === controller) {
+      state.chatAbort = null;
+      el('send').disabled = false;
+    }
   }
 }
 
@@ -587,68 +597,182 @@ function decodeBase64Pcm(base64) {
   return new Int16Array(bytes.buffer, 0, bytes.length >> 1);
 }
 
-// ---------------------------------------------------------------- 录音与识别
+// ---------------------------------------------------------------- 语音输入（VAD 自动断句）
 
-let recorder = null;
-let recordTimer = null;
-let audioStream = null;
+const voice = {
+  on: false,
+  stream: null,
+  ctx: null,
+  node: null,
+  vad: null,
+  machine: null,
+  queue: [],
+  running: false,
+};
 
-async function toggleRecording() {
-  if (recorder) {
-    recorder.stop();
+/** 开启自由对话：麦克风常开，VAD 判断断句后自动送 ASR。 */
+async function startListening() {
+  if (voice.on) return;
+  setStatus('正在打开麦克风…');
+  try {
+    await loadVadOrt();
+  } catch (error) {
+    setStatus('VAD 加载失败：' + error.message, 'error');
     return;
   }
-  // 用户开口即打断当前播报，和真人对谈一致。
-  if (state.speaking) interrupt();
   try {
-    audioStream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+    voice.stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
     });
   } catch (error) {
     setStatus('无法打开麦克风：' + error, 'error');
     return;
   }
-  const chunks = [];
-  recorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm;codecs=opus' });
-  recorder.ondataavailable = (event) => {
-    if (event.data.size > 0) chunks.push(event.data);
+
+  voice.vad = new SileroVAD({ sampleRate: SAMPLE_RATE });
+  await voice.vad.init('./vad/silero_vad.onnx');
+  voice.machine = new VADStateMachine({
+    onSpeechStart: () => setStatus('正在听…'),
+    onSpeechEnd: (blob) => handleUtterance(blob),
+  });
+
+  voice.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  // 浏览器自动播放策略：没有用户手势时 AudioContext 是 suspended，第一次交互补一次 resume。
+  if (voice.ctx.state === 'suspended') {
+    voice.ctx.resume().catch(() => {});
+    document.body.addEventListener(
+      'pointerdown',
+      () => voice.ctx && voice.ctx.state === 'suspended' && voice.ctx.resume(),
+      { once: true },
+    );
+  }
+  const source = voice.ctx.createMediaStreamSource(voice.stream);
+  voice.node = voice.ctx.createScriptProcessor(1024, 1, 1);
+  const ratio = voice.ctx.sampleRate / SAMPLE_RATE;
+  let raw = new Float32Array(0);
+  let pending = new Int16Array(0);
+
+  voice.node.onaudioprocess = (event) => {
+    const input = event.inputBuffer.getChannelData(0);
+    const merged = new Float32Array(raw.length + input.length);
+    merged.set(raw, 0);
+    merged.set(input, raw.length);
+    raw = merged;
+    const need = Math.ceil(512 * ratio);
+    if (raw.length < need) return;
+
+    const outLen = Math.floor(raw.length / ratio);
+    const resampled = new Int16Array(outLen);
+    for (let i = 0; i < outLen; i += 1) {
+      const pos = i * ratio;
+      const i0 = Math.floor(pos);
+      const frac = pos - i0;
+      const s0 = raw[i0];
+      const s1 = i0 + 1 < raw.length ? raw[i0 + 1] : s0;
+      const x = Math.max(-1, Math.min(1, s0 + (s1 - s0) * frac));
+      resampled[i] = Math.round(x * 32767);
+    }
+    raw = raw.slice(Math.floor(outLen * ratio));
+
+    const joined = new Int16Array(pending.length + resampled.length);
+    joined.set(pending, 0);
+    joined.set(resampled, pending.length);
+    pending = joined;
+    while (pending.length >= 512) {
+      voice.queue.push(pending.slice(0, 512));
+      pending = pending.subarray(512);
+    }
+    if (!voice.running && voice.queue.length) {
+      voice.running = true;
+      drainVoice();
+    }
   };
-  recorder.onstop = async () => {
-    recorder = null;
-    el('mic').classList.remove('recording');
-    clearTimeout(recordTimer);
-    audioStream.getTracks().forEach((track) => track.stop());
-    audioStream = null;
-    const blob = new Blob(chunks, { type: 'audio/webm' });
-    if (blob.size < 2000) {
+
+  // 用 0 增益的 GainNode 把处理链接到 destination，浏览器才会持续回调。
+  const sink = voice.ctx.createGain();
+  sink.gain.value = 0;
+  source.connect(voice.node);
+  voice.node.connect(sink);
+  sink.connect(voice.ctx.destination);
+
+  voice.on = true;
+  el('mic').classList.add('recording');
+  setStatus('自由对话已开启，直接说话即可');
+}
+
+function stopListening() {
+  if (!voice.on) return;
+  voice.on = false;
+  voice.queue.length = 0;
+  if (voice.machine) voice.machine.reset();
+  if (voice.node) voice.node.disconnect();
+  if (voice.stream) voice.stream.getTracks().forEach((track) => track.stop());
+  if (voice.ctx) voice.ctx.close();
+  voice.node = null;
+  voice.stream = null;
+  voice.ctx = null;
+  el('mic').classList.remove('recording');
+  setStatus('自由对话已关闭');
+}
+
+/** 逐帧跑 VAD；播报或本地音频播放时丢帧，避免把扬声器回声当成说话。 */
+async function drainVoice() {
+  while (voice.queue.length) {
+    const frame = voice.queue.shift();
+    if (state.speaking || state.local) {
+      if (voice.machine) voice.machine.reset();
+      continue;
+    }
+    try {
+      const prob = await voice.vad.processFrame(frame);
+      if (voice.machine) voice.machine.onVADFrame(prob, frame);
+    } catch (error) {
+      console.error('[vad]', error);
+      voice.queue.length = 0;
+      if (voice.machine) voice.machine.reset();
+      break;
+    }
+  }
+  voice.running = false;
+}
+
+/** 断句后的整段语音 → ASR → 对话。 */
+async function handleUtterance(blob) {
+  if (state.speaking) return;
+  if (blob.size < 2000) {
+    setStatus('没听清，再说一次？');
+    return;
+  }
+  setStatus('识别中…');
+  try {
+    const form = new FormData();
+    form.append('audio', blob, 'speech.wav');
+    const response = await fetch('/api/asr', { method: 'POST', body: form });
+    const data = await response.json();
+    if (data.error) throw new Error(data.error);
+    if (data.empty || !data.text) {
       setStatus('没听清，再说一次？');
       return;
     }
-    setStatus('识别中…');
-    try {
-      const form = new FormData();
-      form.append('audio', blob, 'speech.webm');
-      const response = await fetch('/api/asr', { method: 'POST', body: form });
-      const data = await response.json();
-      if (data.error) throw new Error(data.error);
-      if (data.empty || !data.text) {
-        setStatus('没听清，再说一次？');
-        return;
-      }
-      setStatus('你说：' + data.text);
-      speak(data.text);
-    } catch (error) {
-      setStatus('识别失败：' + error.message, 'error');
-    }
-  };
-  recorder.start();
-  el('mic').classList.add('recording');
-  setStatus('正在听…');
-  recordTimer = setTimeout(() => recorder && recorder.stop(), 20000);
+    addBubble('user', data.text);
+    speak(data.text);
+  } catch (error) {
+    setStatus('识别失败：' + error.message, 'error');
+  }
 }
 
 async function interrupt() {
+  if (state.chatAbort) {
+    state.chatAbort.abort();
+    state.chatAbort = null;
+  }
   resetPlayback();
+  if (voice.machine) voice.machine.reset();
   try {
     await fetch('/api/interrupt', {
       method: 'POST',
@@ -669,8 +793,22 @@ function setStatus(text, kind) {
   node.className = kind || '';
 }
 
-function setSubtitle(text) {
-  el('subtitle').textContent = text;
+function addBubble(role, text = '') {
+  const box = el('bubbles');
+  const bubble = document.createElement('div');
+  bubble.className = `bubble ${role}`;
+  bubble.textContent = text;
+  box.appendChild(bubble);
+  while (box.children.length > 20) box.removeChild(box.firstChild);
+  box.scrollTop = box.scrollHeight;
+  return bubble;
+}
+
+function appendSubtitle(text) {
+  if (!state.chatBubble) state.chatBubble = addBubble('avatar');
+  state.chatBubble.textContent += text;
+  const box = el('bubbles');
+  box.scrollTop = box.scrollHeight;
 }
 
 /** 加载遮罩：ratio 为 0..1，不传只更新文字。 */
@@ -753,11 +891,6 @@ async function loadModels() {
   return out;
 }
 
-function appendSubtitle(text) {
-  state.subtitle = (state.subtitle + text).slice(-160);
-  setSubtitle(state.subtitle);
-}
-
 async function boot() {
   const controls = ['mic', 'text', 'send', 'file', 'stop'];
   controls.forEach((id) => { el(id).disabled = true; });
@@ -799,12 +932,18 @@ async function boot() {
       const text = input.value.trim();
       if (!text) return;
       input.value = '';
+      addBubble('user', text);
+      // 文字提交抢占：正在说话或播本地音频时先打断，再开始新一轮。
+      if (state.speaking || state.local) interrupt();
       speak(text);
     });
     el('text').addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && !event.isComposing) el('send').click();
     });
-    el('mic').addEventListener('click', toggleRecording);
+    el('mic').addEventListener('click', () => {
+      if (voice.on) stopListening();
+      else startListening();
+    });
     el('file').addEventListener('click', () => el('audiofile').click());
     el('audiofile').addEventListener('change', async (event) => {
       const file = event.target.files && event.target.files[0];
@@ -829,6 +968,8 @@ async function boot() {
     controls.forEach((id) => { el(id).disabled = false; });
     setStatus(`已就绪，可以开始对话 · ${state.provider}`, 'ok');
     finishLoading();
+    // 默认开启麦克风，不用手动点；权限被拒时状态栏会提示，可点麦克风重试。
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) startListening();
   } catch (error) {
     setStatus('启动失败：' + error.message, 'error');
     failLoading('启动失败：' + error.message);

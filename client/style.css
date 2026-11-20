@@ -54,27 +54,60 @@ body {
   pointer-events: none;
 }
 
-.subtitle {
+.bubbles {
   position: absolute;
-  left: 50%;
-  bottom: 20px;
-  transform: translateX(-50%);
-  max-width: min(720px, 86%);
-  padding: 8px 14px;
-  border-radius: 10px;
-  background: rgba(8, 10, 14, 0.62);
-  color: #f3f6fb;
-  font-size: 15px;
-  line-height: 1.5;
-  text-align: center;
-  white-space: pre-wrap;
+  left: 0;
+  right: 0;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 30%;
+  padding: 0 16px;
+  overflow-y: auto;
   pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.18s ease;
+  scrollbar-width: none;
 }
 
-.subtitle:not(:empty) {
-  opacity: 1;
+.bubbles::-webkit-scrollbar {
+  display: none;
+}
+
+.bubble {
+  max-width: 78%;
+  padding: 8px 12px;
+  border-radius: 14px;
+  font-size: 15px;
+  line-height: 1.45;
+  color: #f3f6fb;
+  white-space: pre-wrap;
+  word-break: break-word;
+  backdrop-filter: blur(8px);
+  animation: bubble-in 0.16s ease-out;
+}
+
+.bubble.user {
+  align-self: flex-start;
+  background: rgba(18, 22, 30, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-bottom-left-radius: 4px;
+}
+
+.bubble.avatar {
+  align-self: flex-end;
+  background: rgba(28, 110, 235, 0.78);
+  border-bottom-right-radius: 4px;
+}
+
+@keyframes bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .bar {
