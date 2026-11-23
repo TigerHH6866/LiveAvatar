@@ -7,7 +7,7 @@
 ## 🎉 用于Ai客服、Ai培训、Ai教师、虚拟面试、微课制作、Ai员工、追忆亲人
 
 ## Update Log
-2026-11-23: demo上线了透明背景功能，右上角可提交新背景图，demo：https://three.daihuajun.cn/webgpu
+2026-11-23: demo上线了透明背景功能，右上角可提交新背景图，demo：https://liveavatar.daihuajun.cn
 
 
 ## 目录
@@ -33,7 +33,7 @@ python server/app.py
 当前后端接入了coze agent，百炼asr(qwenqwen-audio-3.1-asr-flash)，百炼tts(qwen-audio-3.1-tts-flash)，需要自行开通key。您也可以自行二次开发接入其他agent和语音模型
 凭据在 `server/key.py` 或环境变量读（`COZE_TOKEN`、`COZE_BOT_ID`、`ALIYUN_TTS_API_KEY`、`ALIYUN_TTS_VOICE`）。
 
-demo：https://three.daihuajun.cn/webgpu
+demo：https://liveavatar.daihuajun.cn
 
 调试后端：`?ep=webgpu` 强制 WebGPU、`?ep=wasm` 强制 wasm。
 

@@ -667,7 +667,10 @@ async function startListening() {
   }
 
   voice.vad = new SileroVAD({ sampleRate: SAMPLE_RATE });
-  await voice.vad.init('./vad/silero_vad.onnx');
+  await voice.vad.init(
+    (state.config.media && state.config.media.vad) || './vad/silero_vad.onnx',
+    state.config.ort && state.config.ort.vad_wasm,
+  );
   voice.machine = new VADStateMachine({
     onSpeechStart: () => setStatus('正在听…'),
     onSpeechEnd: (blob) => handleUtterance(blob),

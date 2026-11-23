@@ -107,10 +107,13 @@ def config() -> Response:
         models_base = f"{ASSET_BASE}/models"
         asset_base = f"{ASSET_BASE}/avatars/{avatar}"
         ort_wasm = f"{ASSET_BASE}/ort/"
+        # VAD 是独立的一份 ORT 运行时，和主推理那套不共用
+        vad_base = f"{ASSET_BASE}/vad"
     else:
         models_base = "/models"
         asset_base = f"/assets/{avatar}"
         ort_wasm = "/vendor/ort/"
+        vad_base = "/vad"
     return jsonify(
         avatar=avatar,
         meta=meta,
@@ -123,10 +126,12 @@ def config() -> Response:
             "faces": f"{asset_base}/faces",
             # 离线 RVM 抠像蒙版；素材没跑抠像脚本时为 None，前端回退不透明画面
             "mask": f"{asset_base}/{meta['mask']}" if meta.get("mask") else None,
+            "vad": f"{vad_base}/silero_vad.onnx",
         },
         ort={
             "script": "/vendor/ort/ort.webgpu.min.js",
             "wasm": ort_wasm,
+            "vad_wasm": f"{vad_base}/",
         },
         audio={},
     )

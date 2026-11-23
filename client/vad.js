@@ -17,12 +17,13 @@ class SileroVAD {
     this.initialized = false;
   }
 
-  async init(modelUrl) {
+  async init(modelUrl, wasmBase) {
     if (this.initialized) return;
     if (typeof ort === 'undefined') throw new Error('VAD 运行时未加载');
     ort.env.wasm.numThreads = 1;
     ort.env.wasm.simd = true;
-    ort.env.wasm.wasmPaths = new URL('./vad/', location.href).href;
+    // wasm 可以放在 OSS（传 liveavatar/vad/ort-wasm-simd.wasm），没配就走本机 ./vad/
+    ort.env.wasm.wasmPaths = wasmBase || new URL('./vad/', location.href).href;
     ort.env.logSeverityLevel = 3;
     this.session = await ort.InferenceSession.create(modelUrl, {
       executionProviders: ['wasm'],
