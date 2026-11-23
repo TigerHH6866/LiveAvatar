@@ -41,6 +41,10 @@ AVATAR = os.environ.get("LIVEAVATAR_AVATAR", "model010-1080-short")
 AVATAR_DIR = ASSETS_DIR / AVATAR
 MAX_UPLOAD = 32 * 1024 * 1024
 
+# 可选：模型/素材/ORT wasm 放在 OSS 时填对象存储前缀（不含结尾斜杠），
+# 例如 https://ref-image.oss-cn-shanghai.aliyuncs.com/liveavatar
+ASSET_BASE = os.environ.get("LIVEAVATAR_ASSET_BASE", "").rstrip("/")
+
 app = Flask(__name__, static_folder=None)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD
 
@@ -96,20 +100,33 @@ def config() -> Response:
         meta = _avatar_meta()
     except FileNotFoundError as exc:
         return jsonify(error=str(exc)), 500
+    avatar = meta["avatar"]
+    # 大文件（模型 / 素材 / ORT wasm）配了 OSS 就从对象存储取；留空走本机路由。
+    # 注意 OSS 上的目录叫 avatars/，本机路由是 /assets/。
+    if ASSET_BASE:
+        models_base = f"{ASSET_BASE}/models"
+        asset_base = f"{ASSET_BASE}/avatars/{avatar}"
+        ort_wasm = f"{ASSET_BASE}/ort/"
+    else:
+        models_base = "/models"
+        asset_base = f"/assets/{avatar}"
+        ort_wasm = "/vendor/ort/"
     return jsonify(
-        avatar=meta["avatar"],
+        avatar=avatar,
         meta=meta,
         models={
-            "feather": "/models/live_hubert.onnx",
-            "visual": f"/models/{meta['avatar']}.onnx",
+            "feather": f"{models_base}/live_hubert.onnx",
+            "visual": f"{models_base}/{avatar}.onnx",
         },
         media={
-            "loop": f"/assets/{meta['avatar']}/loop.mp4",
-            "faces": f"/assets/{meta['avatar']}/faces",
+            "loop": f"{asset_base}/loop.mp4",
+            "faces": f"{asset_base}/faces",
+            # 离线 RVM 抠像蒙版；素材没跑抠像脚本时为 None，前端回退不透明画面
+            "mask": f"{asset_base}/{meta['mask']}" if meta.get("mask") else None,
         },
         ort={
             "script": "/vendor/ort/ort.webgpu.min.js",
-            "wasm": "/vendor/ort/",
+            "wasm": ort_wasm,
         },
         audio={},
     )

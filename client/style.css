@@ -25,6 +25,7 @@ body {
 body {
   display: flex;
   flex-direction: column;
+  background: radial-gradient(circle at 50% 28%, #1b2436 0%, #0b0d12 58%, #06080d 100%);
 }
 
 .stage-wrap {
@@ -35,7 +36,37 @@ body {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  background: #000;
+  /* 透明数字人：舞台不铺底色，人物以外的区域直接透出页面背景 */
+  background: transparent;
+  /* 上传背景图后由 JS 写入 background-image，这里只管铺满 */
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.stage-tools {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 5;
+  display: flex;
+  gap: 8px;
+}
+
+.chip {
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(18, 22, 30, 0.55);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+}
+
+.chip:hover {
+  background: rgba(28, 34, 46, 0.75);
 }
 
 #stage {

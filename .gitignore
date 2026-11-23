@@ -1,6 +1,9 @@
 # 环境
 .venv/
+server/__pycache__/
+tools/
 
 # 构建输出（根据你的工具选择）
-tools/
+tools/*
+!tools/matte_loop.py
 *.zip

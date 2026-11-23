@@ -4,3 +4,6 @@ aiohttp>=3.9
 
 # 仅导出 ONNX 时需要（浏览器端不需要）：
 # torch, onnx, numpy, pillow
+
+# 仅离线抠像时需要（tools/matte_loop.py）：
+# onnxruntime, numpy, pillow

@@ -6,6 +6,7 @@
  */
 
 import { SileroVAD, VADStateMachine, loadVadOrt } from './vad.js';
+import { createCompositor } from './gl_compose.js';
 
 const FPS = 25;
 const SAMPLE_RATE = 16000;
@@ -44,6 +45,7 @@ const state = {
   sessionId: (crypto.randomUUID && crypto.randomUUID()) || String(Date.now()),
   chatAbort: null,    // 当前对话流的 AbortController，抢占时中止
   chatBubble: null,   // 当前正在流式追加的数字人气泡
+  compositor: null,   // WebGL 抠像合成器（视频 × mask）
 };
 
 // ---------------------------------------------------------------- 视频与画布
@@ -184,11 +186,41 @@ function resyncAnchor() {
   state.patches = shifted;
 }
 
+const MASK_DRIFT = 0.15;   // mask 与 loop 偏差超过 3.7 帧才纠正（阈值太小每次循环都会 seek）
+
+/**
+ * mask 与 loop 是两条独立播放的视频，启动时刻和循环周期都会有细微差别。
+ * 每隔一段时间对齐一次（主动 seek 会掉一帧，所以只在偏差明显时才纠）。
+ */
+function syncMask(video, maskVideo) {
+  if (!maskVideo || maskVideo.readyState < 2) return;
+  if (maskVideo.paused) maskVideo.play().catch(() => {});
+  const duration = maskVideo.duration;
+  if (!duration || !Number.isFinite(duration)) return;
+  const loopFrames = state.meta.loop_frames;
+  const index = ((Math.round(video.currentTime * FPS) % loopFrames) + loopFrames) % loopFrames;
+  const target = index / FPS;
+  let diff = Math.abs(maskVideo.currentTime - target);
+  diff = Math.min(diff, Math.abs(diff - duration));
+  if (diff > MASK_DRIFT && !maskVideo.seeking) maskVideo.currentTime = target;
+}
+
 function draw() {
   const canvas = el('stage');
   const ctx = canvas.getContext('2d');
   const video = el('source');
-  if (video.readyState >= 2) {
+  if (state.compositor) {
+    const maskVideo = el('mask');
+    syncMask(video, maskVideo);
+    // 合成不出来（mask 还在加载/seek）就保留上一帧画面，绝不退回原始视频，
+    // 否则循环换帧那一下会闪出素材原背景
+    if (state.compositor.render(video, maskVideo)) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(state.compositor.canvas, 0, 0, canvas.width, canvas.height);
+    }
+  } else if (video.readyState >= 2) {
+    // 没有配 mask 的兼容路径：原样显示
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   }
   const patch = pickPatch(state.frameAbs);
@@ -913,6 +945,35 @@ async function boot() {
     trackVideoFrames(video);
     setLoading('加载素材视频…', 0.05);
     await waitVideoReady(video);
+
+    // 透明抠像：mask.mp4 与 loop 同帧率同帧数，逐帧合成；没有 mask 就走不透明回退
+    const maskVideo = el('mask');
+    const maskUrl = state.config.media.mask;
+    if (maskUrl) {
+      try {
+        state.compositor = createCompositor(meta.width, meta.height, {
+          low: meta.mask_low ?? 0.15,
+          high: meta.mask_high ?? 0.85,
+        });
+      } catch (error) {
+        console.warn('[matte] WebGL 合成器不可用，回退不透明画面：', error);
+      }
+    }
+    if (state.compositor) {
+      maskVideo.src = maskUrl;
+      maskVideo.loop = true;
+      maskVideo.muted = true;
+      maskVideo.playsInline = true;
+      // 蒙版真的加载失败（404/解码不了）才退回不透明画面；seek/缓冲期间不退回
+      maskVideo.addEventListener('error', () => {
+        console.warn('[matte] 蒙版加载失败，回退为不透明画面');
+        state.compositor = null;
+      }, { once: true });
+      setLoading('加载抠像蒙版…', 0.06);
+      await waitVideoReady(maskVideo);
+      await maskVideo.play().catch(() => {});
+    }
+
     await video.play().catch(() => {
       setStatus('点击画面开始');
       document.body.addEventListener('click', () => video.play(), { once: true });
@@ -949,6 +1010,23 @@ async function boot() {
       const file = event.target.files && event.target.files[0];
       event.target.value = '';        // 允许连续选同一个文件
       if (file) await playLocalAudio(file);
+    });
+
+    // 本地背景图：铺在舞台底层，画布保持透明，数字人就浮在图片上面
+    let bgObjectUrl = null;
+    const applyBackground = (url) => {
+      const wrap = document.querySelector('.stage-wrap');
+      wrap.style.backgroundImage = url ? `url("${url}")` : '';
+      el('bgclear').hidden = !url;
+      if (bgObjectUrl) URL.revokeObjectURL(bgObjectUrl);
+      bgObjectUrl = url;
+    };
+    el('bg').addEventListener('click', () => el('bgfile').click());
+    el('bgclear').addEventListener('click', () => applyBackground(null));
+    el('bgfile').addEventListener('change', (event) => {
+      const file = event.target.files && event.target.files[0];
+      event.target.value = '';
+      if (file) applyBackground(URL.createObjectURL(file));
     });
     el('stop').addEventListener('click', () => {
       if (state.local) {

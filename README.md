@@ -5,16 +5,40 @@
 
 #零显卡-响应快-高并发
 
-
+## Update Log
+2026-11-23: demo上线了透明背景功能，右上角可提交新背景图，demo：https://three.daihuajun.cn/webgpu
 
 ## 目录
 
 ```
-client/          前端：WebGPU 推理 worker + 音频时钟渲染
+client/          前端：WebGPU 推理 worker + 音频时钟渲染 + WebGL 抠像合成
 server/          后端：Flask，只做 ASR / 对话 / TTS（app.py, chat.py, asr.py, key.py）
 models/          live_hubert.onnx、<形象>.onnx（视觉模型与数字人同名）
-assets/<形象>/   loop.mp4、faces/*.webp、meta.json
+assets/<形象>/   loop.mp4、mask.mp4、faces/*.webp、meta.json
+tools/           matte_loop.py（离线抠像）、prepare_assets.py、export_onnx.py
 ```
+
+
+## 透明背景（离线抠像）
+
+本工程在素材侧预先把人物抠出来，运行时只做合成，客户端不再跑抠像模型：
+
+1. `tools/matte_loop.py` 用 RVM（Robust Video Matting，ONNX/CPU）对 `loop.mp4` 逐帧推理，
+   输出与原视频同帧率同帧数的灰度蒙版 `mask.mp4`（540×960，随人物一起循环）。
+2. 前端 `client/gl_compose.js` 用 WebGL 把「视频颜色 × 蒙版灰度」合成为带 alpha 的画面，
+   `draw()` 里先清空舞台再画人物，页面背景就能透上来；嘴部贴片逻辑不变。
+3. mask 与 loop 各自播放，偏差超过 1.5 帧时按帧号 seek 对齐；mask 缺失或 WebGL 不可用时
+   自动回退为不透明画面。
+
+重新生成蒙版（需 ffmpeg、onnxruntime；权重在 `tools/models/rvm_mobilenetv3_fp32.onnx`，
+缺失时从 RVM 官方 release 下载同名文件即可）：
+
+```
+.venv\Scripts\python.exe tools\matte_loop.py
+```
+
+`meta.json` 里的 `mask` / `mask_scale` / `mask_frames` / `mask_low` / `mask_high`
+控制蒙版文件与合成参数；删掉 `mask` 字段即关闭透明效果。
 
 
 ## 运行
@@ -32,6 +56,44 @@ python server/app.py
 demo：https://three.daihuajun.cn/webgpu
 
 调试后端：`?ep=webgpu` 强制 WebGPU、`?ep=wasm` 强制 wasm。
+
+
+## 资源放 OSS（可选）
+
+模型、素材、ORT wasm 可以放到对象存储，页面和 API 仍由 Flask 提供：
+
+```
+# PowerShell
+$env:LIVEAVATAR_ASSET_BASE='https://<bucket>.oss-cn-<region>.aliyuncs.com/liveavatar'
+.\.venv\Scripts\python.exe server\app.py
+```
+
+设置后 `/api/config` 里的 `models` / `media` / `ort.wasm` 全部返回 OSS 绝对地址；
+不设置则走本机 `/models`、`/assets`、`/vendor/ort` 路由，行为不变。
+
+OSS 目录与本地路径的对应（OSS 用 `avatars/`，本机是 `assets/`）：
+
+```
+liveavatar/
+├── models/            live_hubert.onnx、<形象>.onnx
+├── avatars/<形象>/    loop.mp4、mask.mp4、faces/000.webp~249.webp
+└── ort/               ort.webgpu.min.mjs、ort-wasm-simd-threaded.asyncify.mjs/.wasm
+```
+
+不需要上传：`meta.json`（Flask 本地读取）、`loop-1.mp4`、`tools/models/` 下的 RVM 权重，
+以及 `vendor/ort` 里 jsep / jspi / plain 三组未被引用的 wasm（约 59 MB）。
+
+三点必须配置，否则浏览器侧会失败：
+
+1. **CORS**：来源填前端实际域名（如 `http://127.0.0.1:7861`），方法 `GET, HEAD, OPTIONS`，
+   允许头 `*`，暴露 `Content-Length, Content-Range, Accept-Ranges, ETag`。
+   页面开了 `COOP/COEP`，跨源资源必须能通过 CORS，`<video>` 上的 `crossorigin="anonymous"` 不能去掉。
+2. **Cache-Control**：`.onnx/.wasm/.webp` 用 `public, max-age=31536000, immutable`，
+   `.mp4` 用 `public, max-age=604800`。不配的话每次刷新会重新拉 60 MB 左右。
+3. **loop.mp4 必须是 faststart**（moov 在头部），否则首帧要等尾部 Range：
+   `ffmpeg -i loop.mp4 -c copy -movflags +faststart loop-fast.mp4`。
+
+换端口、换域名时记得把新来源加进 CORS 白名单。
 
 
 ## 关键设计

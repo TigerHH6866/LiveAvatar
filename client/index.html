@@ -9,8 +9,16 @@
   <body>
     <main class="stage-wrap">
       <canvas id="stage"></canvas>
-      <video id="source" class="hidden" playsinline muted preload="auto"></video>
+      <video id="source" class="hidden" playsinline muted preload="auto" crossorigin="anonymous"></video>
+      <!-- 离线抠像 mask：灰度视频，前端取 R 通道当 alpha，让舞台只留下人物 -->
+      <video id="mask" class="hidden" playsinline muted preload="auto" crossorigin="anonymous"></video>
       <div id="bubbles" class="bubbles"></div>
+      <!-- 背景图控制：本地上传后铺在舞台底下，人物透明浮在上面 -->
+      <div class="stage-tools">
+        <button id="bg" class="chip" title="上传本地背景图">背景图</button>
+        <button id="bgclear" class="chip" title="恢复默认背景" hidden>还原</button>
+      </div>
+      <input id="bgfile" type="file" accept="image/*" hidden />
     </main>
 
     <footer class="bar">
