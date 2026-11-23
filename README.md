@@ -7,10 +7,7 @@
 
 ## Update Log
 2026-11-23: demo上线了透明背景功能，右上角可提交新背景图，demo：https://three.daihuajun.cn/webgpu
-<<<<<<< HEAD
-=======
 
->>>>>>> 28e774872fda93e38d2d201d37fcf4f67a56d66b
 
 ## 目录
 
