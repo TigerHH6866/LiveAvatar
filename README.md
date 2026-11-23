@@ -5,6 +5,8 @@
 
 #零显卡-响应快-高并发
 
+## Update Log
+2026-11-23: demo上线了透明背景功能，右上角可提交新背景图，demo：https://three.daihuajun.cn/webgpu
 
 
 ## 目录
@@ -57,4 +59,5 @@ demo：https://three.daihuajun.cn/webgpu
 ## 数字形象模型限制
 
 - 项目所用数字人形象所有权归属本作者，仅可用于研究、学习、演示，不可直接商用
-- 如需商用或训练自己的数字人形象，请联系：vx( tigerhe6866 )
+- demo里的透明及可更换背景功能为商用版
+- 如需商用版或训练自己的数字人形象，请联系：vx( tigerhe6866 )
