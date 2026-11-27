@@ -8,6 +8,16 @@
 
 ## Update Log
 2026-11-23: demo上线了透明背景功能，右上角可提交新背景图，demo：https://liveavatar.daihuajun.cn
+2026-11-26: 新增 iframe 嵌入方式，其他网站可以直接挂一个透明数字人（见下文「嵌入其他网站」）
+
+
+## 效果预览
+
+<p align="center">
+  <img src="assets/media/ScreenShot_2026-11-27_103559_493.jpg" width="32%" />
+  <img src="assets/media/furvibe-1.jpg" width="32%" />
+  <img src="assets/media/furvibe-2.jpg" width="32%" />
+</p>
 
 
 ## 目录
@@ -37,6 +47,73 @@ demo：https://liveavatar.daihuajun.cn
 
 调试后端：`?ep=webgpu` 强制 WebGPU、`?ep=wasm` 强制 wasm。
 
+
+## 嵌入其他网站（iframe）
+
+其他网站想挂一个数字人，用 iframe 方式即可，模型、素材、抠像蒙版与网页 demo 完全共用。嵌入方不需要配 COOP/COEP，也不用把自己的域名加进 OSS 的 CORS 白名单——所有请求都发生在 iframe 自己的源里。
+
+相关文件：
+
+```
+client/liveavatar.js     宿主侧 SDK：创建 iframe、转发指令、抛出事件
+client/embed.html        iframe 页面，默认全透明，只有数字人
+client/embed.js          iframe 内 postMessage 桥接
+client/player.js         播放核心：素材循环 + 蒙版合成 + 音频时钟 + 口型贴片
+client/embed-demo.html   接入示例页（Ctrl+Alt+T 唤出测试面板）
+```
+
+### 用法
+
+```html
+<script src="https://liveavatar.daihuajun.cn/liveavatar.js"></script>
+<div id="host"></div>
+<script>
+  const avatar = LiveAvatar.mount('#host', { width: 360, height: 640 });
+  await avatar.ready;                                    // 模型会话就绪
+  avatar.speak({ pcm: int16Array, sampleRate: 16000 });  // 流式 PCM
+</script>
+```
+
+`width / height` 是外框尺寸，内部按 9:16 等比缩放，多余区域保持透明，背景图、文字可以直接垫在 iframe 下面。
+
+### 接口
+
+| 接口 | 说明 |
+| --- | --- |
+| `await avatar.ready` | 模型会话就绪；在此之前调用的 `speak` 会排队 |
+| `speak({ pcm, sampleRate })` | 流式 PCM，`Int16Array`，非 16 kHz 会内部重采样 |
+| `speak({ audio })` | 整段音频，`ArrayBuffer` / `Blob` / `File`（wav、mp3 等） |
+| `speak({ ..., replace: true })` | 打断当前播报，换成新内容 |
+| `interrupt()` | 立即停止 |
+| `setBackground({ kind: 'none' })` | 透明（默认） |
+| `setBackground({ kind: 'color', value: '#0b0d12' })` | 纯色背景 |
+| `setBackground({ kind: 'image', image, mime })` | 图片背景，`ArrayBuffer` / `Blob` |
+| `setSize(width, height)` | 调整外框尺寸 |
+| `destroy()` | 销毁实例并移除 iframe |
+
+多次 `speak` 默认**连续接播**：前一段没播完就接在后面，口型不会断开。只有 `replace: true` 或 `interrupt()` 才打断——什么时候打断交给宿主业务判断（比如用户插话）。
+
+### 事件
+
+| 事件 | 时机 |
+| --- | --- |
+| `progress` | 加载进度，`{ phase, ratio }` |
+| `ready` | 就绪，`{ provider }`（`webgpu` / `wasm`） |
+| `start` | 一段播报开始出声 |
+| `end` | 播报结束，`{ reason: 'drained' \| 'interrupt' }` |
+| `error` | 失败，`{ message, fatal }` |
+| `debug-toggle` | iframe 内按下 Ctrl+Alt+T，可用于打开宿主自己的调试面板 |
+
+```js
+avatar.on('end', ({ reason }) => console.log('播报结束', reason));
+```
+
+### 注意
+
+- **一页只挂一个实例**：每个实例都会加载一份模型会话，多个实例会重复下载并争抢 GPU。
+- **音频和图片请传二进制，不要传 URL**：跨源 CSS 背景会被 COEP 拦掉，音频 URL 还需要宿主自己开 CORS。
+- 默认没有界面；`embed-demo.html` 的测试面板用 `Ctrl+Alt+T` 显示。
+- 自动播放：SDK 已给 iframe 加 `allow="autoplay"`；若浏览器仍拦截，会通过 `error` 事件提示，引导用户先点一下页面即可。
 
 
 ## 关键设计

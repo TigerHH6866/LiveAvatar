@@ -59,6 +59,9 @@ def _no_cache(response: Response) -> Response:
     # 跨源隔离：让 onnxruntime-web 的 wasm 线程（SharedArrayBuffer）可用。
     response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
     response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+    # iframe 版数字人：允许任意站点嵌入（不设 X-Frame-Options）
+    if request.path.startswith("/embed") or request.path == "/liveavatar.js":
+        response.headers["Content-Security-Policy"] = "frame-ancestors *"
     return response
 
 

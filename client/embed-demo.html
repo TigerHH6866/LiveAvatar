@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LiveAvatar 接入示例</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 32px;
+        background: linear-gradient(135deg, #1b2a4a 0%, #2d1f3d 50%, #3a2a1c 100%);
+        color: #e8ecf3;
+        font: 14px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+
+      .card {
+        width: 360px;
+        padding: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 14px;
+        background: rgba(12, 16, 24, 0.55);
+      }
+
+      /* 默认隐藏，Ctrl+T 才显示测试面板，页面上只留干净的数字人 */
+      .card.hidden-panel {
+        display: none;
+      }
+
+      #host {
+        width: 320px;
+        height: 568px;
+        border-radius: 12px;
+        overflow: hidden;
+      }
+
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      button {
+        padding: 8px 12px;
+        border: 0;
+        border-radius: 8px;
+        background: #4f8cff;
+        color: #fff;
+        font-size: 13px;
+        cursor: pointer;
+      }
+
+      button.ghost {
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: #b9c3d4;
+      }
+
+      #status {
+        margin-top: 10px;
+        color: #8a94a6;
+        font-size: 12px;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="host"></div>
+
+    <div class="card hidden-panel" id="panel">
+      <div><strong>LiveAvatar 接入示例</strong></div>
+      <div style="color:#8a94a6;font-size:12px">iframe 默认透明，下面是宿主页面自己的背景。</div>
+      <div class="row">
+        <button id="tone">播放测试音</button>
+        <button id="wav">播放测试 WAV</button>
+        <button id="stop" class="ghost">打断</button>
+      </div>
+      <div class="row">
+        <button id="bgcolor" class="ghost">纯色背景</button>
+        <button id="bgclear" class="ghost">恢复透明</button>
+        <button id="bgfile" class="ghost">上传背景图</button>
+        <input id="file" type="file" accept="image/*" hidden />
+      </div>
+      <div id="status">挂载中…</div>
+    </div>
+
+    <script src="./liveavatar.js"></script>
+    <script>
+      const status = document.getElementById('status');
+      const log = (text) => {
+        status.textContent = text;
+      };
+
+      const avatar = LiveAvatar.mount('#host', {
+        src: './embed.html',
+        width: 320,
+        height: 568,
+      });
+
+      // 页面上默认只有数字人；Ctrl+Alt+T 唤出接入示例与测试按钮。
+      // 焦点在 iframe 里时，embed.js 会把同样的快捷键转成 debug-toggle 事件上来。
+      const panel = document.getElementById('panel');
+      const togglePanel = () => panel.classList.toggle('hidden-panel');
+      window.addEventListener('keydown', (event) => {
+        if (event.ctrlKey && event.altKey && !event.metaKey &&
+            (event.key === 't' || event.key === 'T')) {
+          event.preventDefault();
+          togglePanel();
+        }
+      });
+      avatar.on('debug-toggle', togglePanel);
+
+      avatar.on('progress', (p) => {
+        const ratio = Math.round((p.ratio || 0) * 100);
+        log(`加载中：${p.phase} ${ratio}%`);
+      });
+      avatar.on('ready', (p) => log(`就绪（${p.provider}）`));
+      avatar.on('start', () => log('开始播报'));
+      avatar.on('end', () => log('播报结束'));
+      avatar.on('error', (p) => log(`错误：${p.message}`));
+
+      avatar.ready
+        .then(() => log('就绪，可以播放'))
+        .catch((error) => log(`初始化失败：${error.message}`));
+
+      // 生成 16 kHz 单声道正弦波，模拟宿主 TTS 推来的 PCM
+      function makeTone(seconds, freq) {
+        const rate = 16000;
+        const length = Math.round(seconds * rate);
+        const pcm = new Int16Array(length);
+        for (let i = 0; i < length; i += 1) {
+          const envelope = Math.min(1, Math.min(i, length - i) / (rate * 0.05));
+          pcm[i] = Math.round(Math.sin((2 * Math.PI * freq * i) / rate) * 0.3 * 32767 * envelope);
+        }
+        return pcm;
+      }
+
+      document.getElementById('tone').addEventListener('click', () => {
+        avatar.speak({ pcm: makeTone(2, 220), sampleRate: 16000 });
+      });
+
+      // 整段 WAV：模拟宿主把 TTS 片段直接以文件形式交给 SDK
+      function toWav(pcm, rate) {
+        const buffer = new ArrayBuffer(44 + pcm.length * 2);
+        const view = new DataView(buffer);
+        const write = (offset, text) => {
+          for (let i = 0; i < text.length; i += 1) view.setUint8(offset + i, text.charCodeAt(i));
+        };
+        write(0, 'RIFF');
+        view.setUint32(4, 36 + pcm.length * 2, true);
+        write(8, 'WAVE');
+        write(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, 1, true);
+        view.setUint32(24, rate, true);
+        view.setUint32(28, rate * 2, true);
+        view.setUint16(32, 2, true);
+        view.setUint16(34, 16, true);
+        write(36, 'data');
+        view.setUint32(40, pcm.length * 2, true);
+        new Int16Array(buffer, 44).set(pcm);
+        return buffer;
+      }
+
+      document.getElementById('wav').addEventListener('click', () => {
+        const pcm = makeTone(1.5, 330);
+        avatar.speak({ audio: toWav(pcm, 16000) });
+      });
+
+      document.getElementById('stop').addEventListener('click', () => avatar.interrupt());
+
+      document.getElementById('bgcolor').addEventListener('click', () => {
+        avatar.setBackground({ kind: 'color', value: '#16324f' });
+      });
+
+      document.getElementById('bgclear').addEventListener('click', () => {
+        avatar.setBackground({ kind: 'none' });
+      });
+
+      document.getElementById('bgfile').addEventListener('click', () => {
+        document.getElementById('file').click();
+      });
+
+      document.getElementById('file').addEventListener('change', async (event) => {
+        const file = event.target.files && event.target.files[0];
+        event.target.value = '';
+        if (!file) return;
+        await avatar.setBackground({ kind: 'image', image: file, mime: file.type || 'image/png' });
+        log(`背景已切换：${file.name}`);
+      });
+    </script>
+  </body>
+</html>
