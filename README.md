@@ -7,8 +7,9 @@
 ## 🎉 用于Ai客服、Ai培训、Ai教师、虚拟面试、微课制作、Ai员工、追忆亲人
 
 ## Update Log
-2026-11-23: demo上线了透明背景功能，右上角可提交新背景图，demo：https://liveavatar.daihuajun.cn
+
 2026-11-26: 新增 iframe 嵌入方式，其他网站可以直接挂一个透明数字人（见下文「嵌入其他网站」）
+2026-11-23: demo上线了透明背景功能，右上角可提交新背景图，demo：https://liveavatar.daihuajun.cn
 
 
 ## 效果预览
